@@ -6,6 +6,10 @@
 
 ---
 
+![storager screenshot](screenshot.png)
+
+---
+
 ## Install
 
 From the public repo:
