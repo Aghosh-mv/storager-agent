@@ -1,48 +1,14 @@
-"""Interactive selection — lets the user pick what to delete, and choose always vs this-time."""
-
 from __future__ import annotations
 
-from pathlib import Path
-from typing import List, Optional, Tuple
-
-from .classifier import ClassifiedEntry
+from .present import render_table
 from .scanner import human_size
 
-
-RISK_COLORS = {
-    "safe": "\033[92m",          # green
-    "probably-safe": "\033[93m", # yellow
-    "risky": "\033[91m",         # red
-    "unknown": "\033[90m",       # grey
-}
-RESET = "\033[0m"
 BOLD = "\033[1m"
+DIM = "\033[2m"
+RESET = "\033[0m"
 
 
-def render_table(entries: List[ClassifiedEntry], *, show_all: bool = False) -> None:
-    visible = entries if show_all else [e for e in entries if e.risk in ("safe", "probably-safe", "risky")]
-    if not visible:
-        print("  (nothing to show)")
-        return
-    print()
-    idx_width = len(str(len(visible)))
-    for i, ce in enumerate(visible, 1):
-        color = RISK_COLORS.get(ce.risk, "")
-        size = ce.entry.size_str
-        marker = "d" if ce.entry.is_dir else "f"
-        print(
-            f"  {color}{BOLD}[{i:>{idx_width}}]{RESET} "
-            f"{color}{size:>10}{RESET}  "
-            f"{ce.label}  "
-            f"({ce.category}, {ce.risk}, {marker})"
-        )
-        print(f"       {ce.reason}")
-        print(f"       {ce.entry.path}")
-        print()
-
-
-def parse_selection(raw: str, max_index: int) -> List[int]:
-    """Parse '1,3-5,8' into [1,3,4,5,8]."""
+def parse_selection(raw: str, max_index: int) -> list:
     chosen = set()
     for part in raw.replace(" ", "").split(","):
         if not part:
@@ -66,33 +32,29 @@ def parse_selection(raw: str, max_index: int) -> List[int]:
     return sorted(chosen)
 
 
-def prompt_selection(entries: List[ClassifiedEntry]) -> Tuple[List[ClassifiedEntry], str]:
-    """
-    Returns (selected_entries, mode) where mode is 'always' or 'once'.
-    """
-    visible = [e for e in entries if e.risk in ("safe", "probably-safe", "risky")]
+def prompt_selection(classified) -> tuple:
+    visible = [ce for ce in classified if ce.risk in ("safe", "probably-safe", "risky")]
     if not visible:
-        print("Nothing selected.")
+        print("Nothing to delete here.")
         return [], "once"
 
-    print(f"\n{BOLD}How many to show?{RESET}")
-    print("  [1] Only safe items (recommended)")
+    print(f"\n{BOLD}Show which items?{RESET}")
+    print("  [1] Only safe (recommended)")
     print("  [2] Safe + probably-safe")
     print("  [3] Everything including risky")
     scope = input("  Choice [1]: ").strip() or "1"
-
     if scope == "2":
-        visible = [e for e in visible if e.risk in ("safe", "probably-safe")]
+        visible = [ce for ce in visible if ce.risk in ("safe", "probably-safe")]
     elif scope == "3":
-        pass  # keep all
+        visible = list(classified)
     else:
-        visible = [e for e in visible if e.risk == "safe"]
+        visible = [ce for ce in visible if ce.risk == "safe"]
 
     if not visible:
         print("Nothing matches that filter.")
         return [], "once"
 
-    render_table(visible, show_all=True)
+    render_table(visible, {}, {}, show_all=True)
 
     print(f"{BOLD}Select items to delete.{RESET}")
     print("  Examples: 1,3,5   |   1-4   |   all   |   none")
@@ -100,18 +62,14 @@ def prompt_selection(entries: List[ClassifiedEntry]) -> Tuple[List[ClassifiedEnt
 
     if raw in ("none", "n", ""):
         return [], "once"
-    if raw in ("all", "a"):
-        indices = list(range(1, len(visible) + 1))
-    else:
-        indices = parse_selection(raw, len(visible))
-
+    indices = list(range(1, len(visible) + 1)) if raw in ("all", "a") else parse_selection(raw, len(visible))
     selected = [visible[i - 1] for i in indices]
     if not selected:
         print("Nothing selected.")
         return [], "once"
 
-    total = sum(e.entry.size for e in selected)
-    print(f"\n  Selected {len(selected)} item(s), total {human_size(total)}.")
+    total = sum(ce.entry.size for ce in selected)
+    print(f"\n  Selected {len(selected)} item(s), {human_size(total)}.")
 
     print(f"\n{BOLD}Delete how?{RESET}")
     print("  [1] Only this time")

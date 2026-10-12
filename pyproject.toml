@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "storager"
-version = "0.1.0"
-description = "Pure-algorithm disk space analyzer — finds what's eating your disk, names it in plain language, lets you pick what to delete."
+version = "0.2.0"
+description = "Pure-algorithm disk space analyser — scans, inspects, classifies, diagnoses, explains in plain language, and always asks before deleting."
 readme = "README.md"
-requires-python = ">=3.8"
-license = { text = "MIT" }
-authors = [{ name = "tinkerspace" }]
+requires-python = ">=3.9"
+license = { text = "Private Use License — see LICENSE" }
+authors = [{ name = "Aghosh-mv" }]
 keywords = ["disk", "cleanup", "storage", "analyzer", "cli"]
 
 [project.scripts]

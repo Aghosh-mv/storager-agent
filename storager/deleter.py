@@ -1,5 +1,3 @@
-"""Safe deletion — moves to system trash by default, hard-delete only on request."""
-
 from __future__ import annotations
 
 import os
@@ -20,15 +18,12 @@ class DeleteResult:
 
 
 def _move_to_trash_macos(path: Path) -> bool:
-    """Use macOS `trash` command if available, else osascript."""
-    # Try Homebrew `trash` binary
     if shutil.which("trash"):
         try:
             subprocess.run(["trash", str(path)], check=True, capture_output=True)
             return True
         except subprocess.CalledProcessError:
             pass
-    # Fallback: osascript Finder delete
     script = f'tell application "Finder" to delete POSIX file "{path}"'
     try:
         subprocess.run(["osascript", "-e", script], check=True, capture_output=True, timeout=10)
@@ -41,14 +36,12 @@ def _move_to_trash_linux(path: Path) -> bool:
     trash_dir = Path.home() / ".local" / "share" / "Trash" / "files"
     trash_dir.mkdir(parents=True, exist_ok=True)
     dest = trash_dir / path.name
-    # avoid collision
     i = 1
     while dest.exists():
         dest = trash_dir / f"{path.name}.{i}"
         i += 1
     try:
         shutil.move(str(path), str(dest))
-        # write trashinfo
         info_dir = Path.home() / ".local" / "share" / "Trash" / "info"
         info_dir.mkdir(parents=True, exist_ok=True)
         info = info_dir / (dest.name + ".trashinfo")
@@ -64,7 +57,6 @@ def move_to_trash(path: Path) -> bool:
     elif sys.platform.startswith("linux"):
         return _move_to_trash_linux(path)
     else:
-        # Windows: use recycle bin via PowerShell
         ps = f'(New-Object -ComObject Shell.Application).Namespace(0xA).MoveHere("{path}")'
         try:
             subprocess.run(["powershell", "-Command", ps], check=True, capture_output=True)

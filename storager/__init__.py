@@ -1,3 +1,3 @@
-"""storager — pure-algorithm disk space analyzer."""
+"""storager — pure-algorithm disk space analyser."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

@@ -1,18 +1,17 @@
-"""Core disk scanner — walks the filesystem and measures sizes."""
-
 from __future__ import annotations
 
 import os
 import stat
-from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Tuple
+from typing import Optional
 
 
 @dataclass
 class DiskEntry:
     path: Path
-    size: int  # bytes
+    size: int
     is_dir: bool
     child_count: int = 0
     error: Optional[str] = None
@@ -22,7 +21,7 @@ class DiskEntry:
         return human_size(self.size)
 
 
-def human_size(n: int) -> str:
+def human_size(n: float) -> str:
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if abs(n) < 1024:
             return f"{n:.1f} {unit}"
@@ -30,8 +29,7 @@ def human_size(n: int) -> str:
     return f"{n:.1f} PB"
 
 
-def dir_size(path: Path, *, max_depth: int = 64, _depth: int = 0) -> Tuple[int, int, Optional[str]]:
-    """Return (total_bytes, file_count, error)."""
+def dir_size(path: Path, max_depth: int = 64, _depth: int = 0) -> tuple:
     if _depth > max_depth:
         return 0, 0, "max depth"
 
@@ -67,9 +65,9 @@ def dir_size(path: Path, *, max_depth: int = 64, _depth: int = 0) -> Tuple[int, 
     return total, count, err
 
 
-def scan_immediate_children(root: Path, *, top_n: Optional[int] = None) -> List[DiskEntry]:
-    """List immediate children of root with sizes. Directories are measured recursively."""
-    results: List[DiskEntry] = []
+def scan_immediate_children(root: Path, top_n: Optional[int] = None, parallel: bool = False) -> list:
+    dirs: list[Path] = []
+    results: list[DiskEntry] = []
 
     try:
         with os.scandir(root) as it:
@@ -78,60 +76,29 @@ def scan_immediate_children(root: Path, *, top_n: Optional[int] = None) -> List[
                 try:
                     st = entry.stat(follow_symlinks=False)
                     if stat.S_ISDIR(st.st_mode):
-                        total, count, err = dir_size(p)
-                        results.append(
-                            DiskEntry(path=p, size=total, is_dir=True, child_count=count, error=err)
-                        )
+                        dirs.append(p)
                     else:
-                        results.append(
-                            DiskEntry(path=p, size=st.st_size, is_dir=False, child_count=1)
-                        )
+                        results.append(DiskEntry(path=p, size=st.st_size, is_dir=False, child_count=1))
                 except (PermissionError, FileNotFoundError, OSError):
                     continue
-    except PermissionError:
+    except (PermissionError, FileNotFoundError, OSError):
         return []
-    except FileNotFoundError:
-        return []
+
+    def measure(p: Path) -> tuple:
+        total, count, err = dir_size(p)
+        return p, total, count, err
+
+    if parallel and len(dirs) >= 8:
+        workers = min(len(dirs), 8)
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            measured = list(ex.map(measure, dirs))
+    else:
+        measured = [measure(p) for p in dirs]
+
+    for p, total, count, err in measured:
+        results.append(DiskEntry(path=p, size=total, is_dir=True, child_count=count, error=err))
 
     results.sort(key=lambda e: e.size, reverse=True)
     if top_n is not None:
         results = results[:top_n]
     return results
-
-
-def scan_path_deep(path: Path, *, max_depth: int = 3, min_size: int = 1024 * 1024) -> List[DiskEntry]:
-    """
-    Recursively find the biggest leaves under `path`.
-    Returns entries (files and dirs) that are >= min_size, sorted desc.
-    """
-    found: List[DiskEntry] = []
-
-    def _walk(current: Path, depth: int) -> None:
-        if depth > max_depth:
-            return
-        try:
-            with os.scandir(current) as it:
-                for entry in it:
-                    p = Path(entry.path)
-                    try:
-                        st = entry.stat(follow_symlinks=False)
-                        if stat.S_ISDIR(st.st_mode):
-                            total, count, err = dir_size(p)
-                            if total >= min_size:
-                                found.append(
-                                    DiskEntry(path=p, size=total, is_dir=True, child_count=count, error=err)
-                                )
-                            _walk(p, depth + 1)
-                        else:
-                            if st.st_size >= min_size:
-                                found.append(
-                                    DiskEntry(path=p, size=st.st_size, is_dir=False, child_count=1)
-                                )
-                    except (PermissionError, FileNotFoundError, OSError):
-                        continue
-        except (PermissionError, FileNotFoundError, OSError):
-            return
-
-    _walk(path, 0)
-    found.sort(key=lambda e: e.size, reverse=True)
-    return found

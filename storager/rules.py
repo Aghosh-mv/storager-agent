@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
@@ -13,9 +14,9 @@ RULES_FILE = CONFIG_DIR / "rules.json"
 
 @dataclass
 class Rule:
-    category: str       # classifier category, e.g. "cache", "log"
-    path_glob: str      # glob pattern matched against the entry path
-    action: str         # "delete" or "ignore"
+    category: str
+    path_glob: str
+    action: str
     created_at: str = ""
 
 
@@ -35,12 +36,11 @@ def save_rules(rules: List[Rule]) -> None:
 
 
 def add_rule(category: str, path_glob: str, action: str) -> Rule:
-    import datetime
     rule = Rule(
         category=category,
         path_glob=path_glob,
         action=action,
-        created_at=datetime.datetime.now().isoformat(),
+        created_at=datetime.now().isoformat(),
     )
     rules = load_rules()
     rules.append(rule)
@@ -55,7 +55,6 @@ def match_rule(path_str: str, category: str, rules: Optional[List[Rule]] = None)
     for rule in rules:
         if fnmatch(path_str, rule.path_glob):
             return rule
-        # also match if the category matches and glob is broad
         if rule.path_glob in ("*", "**") and rule.category == category:
             return rule
     return None
