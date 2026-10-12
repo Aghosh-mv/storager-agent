@@ -11,15 +11,15 @@
 From a clone:
 
 ```bash
-git clone https://github.com/<you>/storager.git
-cd storager
+git clone https://github.com/Aghosh-mv/storager-agent.git
+cd storager-agent
 pip install .
 ```
 
 Or without installing (run straight from the repo):
 
 ```bash
-python -m storager scan ~
+python -m storager clean ~
 ```
 
 After `pip install .` the `storager` command is available globally:
@@ -27,6 +27,18 @@ After `pip install .` the `storager` command is available globally:
 ```bash
 storager --version
 ```
+
+---
+
+## Quick start
+
+```bash
+storager              # defaults to interactive clean on the current directory
+storager ~            # clean your home directory
+storager clean ~      # same thing, explicit
+```
+
+**storager first asks how much space you want to free** (e.g. `5G`, `500M`, `2T`), then guides you item-by-item until you hit that target — or you stop early.
 
 ---
 
@@ -59,14 +71,21 @@ Every item is classified into a **category** and a **risk level**:
 ### Clean
 
 ```bash
-storager clean ~
+storager clean ~                 # asks "how much to free?" first
+storager clean ~ --target 5G     # skip the prompt, aim for 5 GB
+storager clean ~ --no-prompt     # no target, just clean
+storager clean ~ --hard          # permanent delete (skip Trash)
 ```
 
-1. Applies any saved *always delete* rules automatically (asks for confirmation).
-2. Shows the remaining items, grouped by risk.
-3. Lets you select with `1,3-5`, `all`, or `none`.
-4. Asks **this time** or **always**.
-5. Moves selections to the system Trash (macOS Finder Trash, Linux FreeDesktop Trash, Windows Recycle Bin). Use `--hard` to permanently delete.
+Flow:
+
+1. **Asks your free-space target** (`5G`, `500M`, …) — or use `--target`.
+2. Applies any saved *always delete* rules automatically (asks for confirmation).
+3. Shows the remaining items, grouped by risk.
+4. Lets you select with `1,3-5`, `all`, or `none`.
+5. Asks **this time** or **always**.
+6. Repeats until you hit the target or choose to stop — a live progress bar tracks `freed / target`.
+7. Moves selections to the system Trash (macOS Finder Trash, Linux FreeDesktop Trash, Windows Recycle Bin). Use `--hard` to permanently delete.
 
 ### Rules
 

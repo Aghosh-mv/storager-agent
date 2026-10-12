@@ -27,6 +27,53 @@ def _banner() -> None:
     print(f"{DIM}Pure-algorithm disk analyser — no AI, no network.{RESET}\n")
 
 
+_SIZE_UNITS = {
+    "k": 1024, "kb": 1024, "kib": 1024,
+    "m": 1024**2, "mb": 1024**2, "mib": 1024**2,
+    "g": 1024**3, "gb": 1024**3, "gib": 1024**3,
+    "t": 1024**4, "tb": 1024**4, "tib": 1024**4,
+}
+
+
+def parse_size(raw: str) -> int | None:
+    """Parse '5G', '500M', '2.5gb', '1024' → bytes. Returns None on failure."""
+    s = raw.strip().lower().replace(" ", "")
+    if not s:
+        return None
+    # split number and unit
+    i = 0
+    while i < len(s) and (s[i].isdigit() or s[i] == "."):
+        i += 1
+    num_str, unit = s[:i], s[i:]
+    if not num_str:
+        return None
+    try:
+        num = float(num_str)
+    except ValueError:
+        return None
+    if unit == "" or unit == "b":
+        return int(num)
+    mult = _SIZE_UNITS.get(unit)
+    if mult is None:
+        return None
+    return int(num * mult)
+
+
+def prompt_target_bytes() -> int | None:
+    """Ask the user how much space they want to free. None = no target."""
+    print(f"{BOLD}How much disk space do you want to free?{RESET}")
+    print(f"  {DIM}Examples: 5G   500M   2T   1024   (or press Enter for no target){RESET}")
+    raw = input("  > ").strip()
+    if not raw:
+        return None
+    target = parse_size(raw)
+    if target is None or target <= 0:
+        print(f"  {YELLOW}Could not parse that — continuing without a target.{RESET}")
+        return None
+    print(f"  {GREEN}Target: {human_size(target)}{RESET}\n")
+    return target
+
+
 def cmd_scan(args: argparse.Namespace) -> int:
     root = Path(args.path).expanduser().resolve()
     if not root.exists():
@@ -68,6 +115,13 @@ def cmd_clean(args: argparse.Namespace) -> int:
     _banner()
     print(f"{BOLD}Cleaning session for:{RESET} {root}\n")
 
+    # 1. Ask the target first (or use --target / --no-prompt)
+    target_bytes: int | None = None
+    if getattr(args, "target", None):
+        target_bytes = parse_size(args.target)
+    if target_bytes is None and not getattr(args, "no_prompt", False):
+        target_bytes = prompt_target_bytes()
+
     children = scan_immediate_children(root, top_n=args.top)
     if not children:
         print("No items found.")
@@ -83,6 +137,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
         if rule and rule.action == "delete":
             auto_selected.append(ce)
 
+    freed_running = 0
     if auto_selected:
         auto_total = sum(e.entry.size for e in auto_selected)
         print(f"{YELLOW}Applying {len(auto_selected)} saved 'always delete' rule(s){RESET} "
@@ -92,28 +147,51 @@ def cmd_clean(args: argparse.Namespace) -> int:
         if confirm == "y":
             results = delete_entries([e.entry.path for e in auto_selected], use_trash=not args.hard)
             _print_results(results)
+            freed_running += sum(r.freed_bytes for r in results if r.ok)
         print()
 
-    # interactive pass on the rest
+    # interactive pass on the rest — loop until target met or user quits
     remaining = [ce for ce in classified if ce not in auto_selected]
-    selected, mode = prompt_selection(remaining)
-    if not selected:
-        print("Done (nothing deleted this session).")
-        return 0
 
-    results = delete_entries([e.entry.path for e in selected], use_trash=not args.hard)
-    _print_results(results)
+    while True:
+        if target_bytes is not None:
+            pct = min(100.0, freed_running / target_bytes * 100)
+            print(f"{BOLD}Progress:{RESET} {human_size(freed_running)} / {human_size(target_bytes)}  ({pct:.0f}%)")
+            if freed_running >= target_bytes:
+                print(f"{GREEN}Target reached.{RESET} You can stop here or keep going.")
+            print()
 
-    if mode == "always":
-        print(f"\n{BOLD}Saving 'always delete' rules…{RESET}")
-        for ce in selected:
-            glob = str(ce.entry.path)
-            add_rule(ce.category, glob, "delete")
-            print(f"  + rule: category={ce.category}  glob={glob}")
-        print(f"{DIM}Rules stored in ~/.config/storager/rules.json{RESET}")
+        selected, mode = prompt_selection(remaining)
+        if not selected:
+            break
 
-    freed = sum(r.freed_bytes for r in results if r.ok)
-    print(f"\n{GREEN}Freed approximately {human_size(freed)}.{RESET}")
+        results = delete_entries([e.entry.path for e in selected], use_trash=not args.hard)
+        _print_results(results)
+        freed_running += sum(r.freed_bytes for r in results if r.ok)
+
+        if mode == "always":
+            print(f"\n{BOLD}Saving 'always delete' rules…{RESET}")
+            for ce in selected:
+                glob = str(ce.entry.path)
+                add_rule(ce.category, glob, "delete")
+                print(f"  + rule: category={ce.category}  glob={glob}")
+            print(f"{DIM}Rules stored in ~/.config/storager/rules.json{RESET}")
+
+        # remove selected from remaining so we don't offer them again
+        selected_paths = {id(ce) for ce in selected}
+        remaining = [ce for ce in remaining if id(ce) not in selected_paths]
+
+        if target_bytes is not None and freed_running >= target_bytes:
+            more = input(f"\n{BOLD}Target met. Delete more? [y/N]:{RESET} ").strip().lower()
+            if more != "y":
+                break
+        if not remaining:
+            break
+
+    print(f"\n{GREEN}Freed approximately {human_size(freed_running)} this session.{RESET}")
+    if target_bytes is not None:
+        pct = min(100.0, freed_running / target_bytes * 100)
+        print(f"{DIM}Target was {human_size(target_bytes)} — {pct:.0f}% achieved.{RESET}")
     return 0
 
 
@@ -170,6 +248,8 @@ def build_parser() -> argparse.ArgumentParser:
     clean_p.add_argument("path", nargs="?", default=".", help="Directory to clean (default: cwd)")
     clean_p.add_argument("--top", type=int, default=50, help="Max items to consider")
     clean_p.add_argument("--hard", action="store_true", help="Permanently delete (skip Trash)")
+    clean_p.add_argument("--target", help="Target free space, e.g. 5G / 500M / 2T (skip the prompt)")
+    clean_p.add_argument("--no-prompt", action="store_true", help="Skip the target question entirely")
     clean_p.set_defaults(func=cmd_clean)
 
     rules_p = sub.add_parser("rules", help="List / add / remove persistent rules")
@@ -187,6 +267,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
+    if argv is None:
+        argv = sys.argv[1:]
+
+    known = {"scan", "clean", "rules", "version"}
+    # bare `storager` or `storager <path>` → default to clean
+    if not argv:
+        argv = ["clean"]
+    elif argv[0] not in known and not argv[0].startswith("-"):
+        argv = ["clean"] + argv
+
     args = parser.parse_args(argv)
     return args.func(args)
 
