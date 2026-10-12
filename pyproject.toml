@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "storager"
+version = "0.1.0"
+description = "Pure-algorithm disk space analyzer — finds what's eating your disk, names it in plain language, lets you pick what to delete."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "tinkerspace" }]
+keywords = ["disk", "cleanup", "storage", "analyzer", "cli"]
+
+[project.scripts]
+storager = "storager.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["storager*"]
