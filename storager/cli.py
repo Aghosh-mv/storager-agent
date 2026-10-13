@@ -213,9 +213,52 @@ def cmd_rules(args) -> int:
     return 0
 
 
+def cmd_low_space(args) -> int:
+    root = Path(args.path).expanduser().resolve()
+    _banner()
+    info = check_low_space(root)
+    if not info:
+        print(f"{RED}Could not check disk usage for {root}{RESET}", file=sys.stderr)
+        return 1
+    print_low_space_help(info)
+    return 0
+
+
 def cmd_version(_) -> int:
     print(f"storager {__version__}")
     return 0
+
+
+def check_low_space(root: Path) -> dict:
+    import shutil
+    try:
+        usage = shutil.disk_usage(root)
+        return {
+            "total": usage.total,
+            "used": usage.used,
+            "free": usage.free,
+            "pct": usage.used / usage.total * 100,
+        }
+    except OSError:
+        return {}
+
+
+def print_low_space_help(info: dict) -> None:
+    free = info.get("free", 0)
+    pct = info.get("pct", 0)
+    print(f"\n{YELLOW}Your disk is {pct:.0f}% full — only {human_size(free)} free.{RESET}")
+    print(f"{BOLD}You may not have enough space to `pip install .`.{RESET}")
+    print(f"\n{DIM}No problem — storager itself is tiny (~50 KB, zero dependencies).{RESET}")
+    print(f"{BOLD}Ways to run it without installing:{RESET}\n")
+    print(f"  {GREEN}1.{RESET} Download the zip (no git, no pip needed):")
+    print(f"     curl -L https://github.com/Aghosh-mv/storager-agent/archive/refs/heads/main.zip \\")
+    print(f"       -o storager.zip && unzip storager.zip")
+    print(f"     cd storager-agent-main && python3 -m storager\n")
+    print(f"  {GREEN}2.{RESET} Run from the repo you already cloned:")
+    print(f"     cd storager-agent && python3 -m storager\n")
+    print(f"  {GREEN}3.{RESET} Put it on a drive with space:")
+    print(f"     pip install --target /Volumes/External/storager .")
+    print(f"     PYTHONPATH=/Volumes/External/storager python3 -m storager\n")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -255,6 +298,10 @@ def build_parser() -> argparse.ArgumentParser:
     ver_p = sub.add_parser("version", help="Print version")
     ver_p.set_defaults(func=cmd_version)
 
+    low_p = sub.add_parser("low-space", help="Show how to run storager when disk is almost full")
+    low_p.add_argument("path", nargs="?", default=".", help="Path to check (default: cwd)")
+    low_p.set_defaults(func=cmd_low_space)
+
     return p
 
 
@@ -262,7 +309,7 @@ def main(argv=None) -> int:
     parser = build_parser()
     if argv is None:
         argv = sys.argv[1:]
-    known = {"scan", "clean", "rules", "version"}
+    known = {"scan", "clean", "rules", "version", "low-space"}
     if not argv:
         argv = ["clean"]
     elif argv[0] not in known and not argv[0].startswith("-"):
