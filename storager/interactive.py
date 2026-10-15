@@ -33,8 +33,7 @@ def parse_selection(raw: str, max_index: int) -> list:
 
 
 def prompt_selection(classified) -> tuple:
-    visible = [ce for ce in classified if ce.risk in ("safe", "probably-safe", "risky")]
-    if not visible:
+    if not classified:
         print("Nothing to delete here.")
         return [], "once"
 
@@ -44,11 +43,11 @@ def prompt_selection(classified) -> tuple:
     print("  [3] Everything including risky")
     scope = input("  Choice [1]: ").strip() or "1"
     if scope == "2":
-        visible = [ce for ce in visible if ce.risk in ("safe", "probably-safe")]
+        visible = [ce for ce in classified if ce.risk in ("safe", "probably-safe")]
     elif scope == "3":
         visible = list(classified)
     else:
-        visible = [ce for ce in visible if ce.risk == "safe"]
+        visible = [ce for ce in classified if ce.risk == "safe"]
 
     if not visible:
         print("Nothing matches that filter.")

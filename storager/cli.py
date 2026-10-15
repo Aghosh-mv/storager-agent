@@ -11,6 +11,7 @@ from . import __version__
 from .confirm import confirm_deletion
 from .deleter import delete_entries
 from .interactive import prompt_selection
+from .journal import entries_for_batch, latest_batch, record_batch, remove_batch
 from .pipeline import analyze, configure
 from .present import render_problems, render_table
 from .profiles import PROFILES, active_profile_name, get_profile, set_active_profile
@@ -170,6 +171,8 @@ def cmd_clean(args) -> int:
             results = _apply_deletions(session, auto, deleted_paths)
             print_results(results)
             session.freed += sum(r.freed_bytes for r in results if r.ok)
+            if not session.flags.dry_run:
+                record_batch(results)
         print()
 
     remaining = [ce for ce in session.classified if ce.entry.path not in deleted_paths]
@@ -193,6 +196,8 @@ def cmd_clean(args) -> int:
         results = _apply_deletions(session, selected, deleted_paths)
         print_results(results)
         session.freed += sum(r.freed_bytes for r in results if r.ok)
+        if not session.flags.dry_run:
+            record_batch(results)
 
         if mode == "always" and not session.flags.dry_run:
             print(f"\n{BOLD}Saving 'always delete' rules…{RESET}")
@@ -214,6 +219,106 @@ def cmd_clean(args) -> int:
     if session.flags.dry_run:
         print(f"{YELLOW}Dry run complete — nothing was deleted.{RESET}")
     return 0
+
+
+def cmd_undo(args) -> int:
+    import shutil
+    _banner()
+    batch = latest_batch()
+    if not batch:
+        print("Nothing to undo — no deletions recorded yet.")
+        return 0
+
+    rows = entries_for_batch(batch)
+    if not rows:
+        print("Nothing to undo — no restorable items in the last batch.")
+        return 0
+
+    total = sum(r.get("size", 0) for r in rows)
+    print(f"{BOLD}Last deletion batch:{RESET} {batch}")
+    print(f"{BOLD}Items to restore:{RESET} {len(rows)}  ({human_size(total)})\n")
+    for r in rows:
+        print(f"  {human_size(r.get('size', 0)):>10}  {r.get('original')}")
+
+    ans = input(f"\n{BOLD}Restore all of these back to their original locations? [y/N]:{RESET} ").strip().lower()
+    if ans != "y":
+        print("Undo cancelled.")
+        return 0
+
+    restored = 0
+    failed = 0
+    for r in rows:
+        dest = Path(r["dest"]) if r.get("dest") else None
+        original = Path(r["original"])
+        if dest is None or not dest.exists():
+            print(f"  {YELLOW}skip{RESET}  {original}  — no longer in Trash")
+            failed += 1
+            continue
+        if original.exists():
+            print(f"  {YELLOW}skip{RESET}  {original}  — something already exists there")
+            failed += 1
+            continue
+        try:
+            original.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(dest), str(original))
+            print(f"  {GREEN}ok{RESET}  {original}")
+            restored += 1
+        except OSError as e:
+            print(f"  {RED}fail{RESET}  {original}  — {e}")
+            failed += 1
+
+    if restored:
+        remove_batch(batch)
+    print(f"\n{GREEN}Restored {restored} item(s).{RESET}" + (f"  {RED}{failed} failed.{RESET}" if failed else ""))
+    return 0
+
+
+def cmd_auto(args) -> int:
+    import shutil
+    root = Path(args.path).expanduser().resolve()
+    _banner()
+    try:
+        usage = shutil.disk_usage(root)
+    except OSError as e:
+        print(f"{RED}Could not check disk usage: {e}{RESET}", file=sys.stderr)
+        return 1
+
+    pct = usage.used / usage.total * 100
+    threshold = args.threshold
+    print(f"Disk: {human_size(usage.used)} used / {human_size(usage.total)}  ({pct:.1f}%)")
+    print(f"Threshold: {threshold}%\n")
+
+    if pct < threshold:
+        print(f"{GREEN}Disk is fine — no action needed.{RESET}")
+        print(f"{DIM}Free space: {human_size(usage.free)}{RESET}")
+        return 0
+
+    print(f"{YELLOW}Disk is {pct:.0f}% full — above your {threshold}% threshold.{RESET}")
+    if args.target:
+        target = parse_size(args.target)
+    else:
+        want_pct = max(0.0, pct - (threshold - 5))
+        target = int(want_pct / 100 * usage.total)
+    if target is None or target <= 0:
+        target = 1024 ** 3
+    print(f"{BOLD}Targeting:{RESET} {human_size(target)}\n")
+
+    class AutoArgs:
+        pass
+
+    a = AutoArgs()
+    a.path = str(root)
+    a.target = None
+    a.top = args.top
+    a.no_prompt = True
+    a.hard = False
+    a.dry_run = False
+    a.trace = args.trace
+    a.parallel = "auto"
+    a.all = False
+    a.profile = ""
+    a.target_bytes = target
+    return cmd_clean(a)
 
 
 def cmd_rules(args) -> int:
@@ -413,6 +518,17 @@ def build_parser() -> argparse.ArgumentParser:
     low_p.add_argument("path", nargs="?", default=".", help="Path to check (default: cwd)")
     low_p.set_defaults(func=cmd_low_space)
 
+    undo_p = sub.add_parser("undo", help="Restore the last batch of deleted items from Trash")
+    undo_p.set_defaults(func=cmd_undo)
+
+    auto_p = sub.add_parser("auto", help="Check disk and clean automatically if above threshold")
+    auto_p.add_argument("path", nargs="?", default=".", help="Path to check (default: cwd)")
+    auto_p.add_argument("--threshold", type=float, default=85, help="Trigger when disk usage is above this %% (default: 85)")
+    auto_p.add_argument("--target", help="Target free space instead of computing from threshold")
+    auto_p.add_argument("--top", type=int, default=50, help="Max items to consider")
+    auto_p.add_argument("--trace", action="store_true", help="Print stage timing")
+    auto_p.set_defaults(func=cmd_auto)
+
     return p
 
 
@@ -420,7 +536,7 @@ def main(argv=None) -> int:
     parser = build_parser()
     if argv is None:
         argv = sys.argv[1:]
-    known = {"scan", "clean", "rules", "version", "low-space", "profile", "export"}
+    known = {"scan", "clean", "rules", "version", "low-space", "profile", "export", "undo", "auto"}
     if not argv:
         argv = ["clean"]
     elif argv[0] not in known and not argv[0].startswith("-"):

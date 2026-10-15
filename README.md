@@ -65,6 +65,8 @@ storager clean ~      # same thing, explicit
 | `storager rules` | List / add / remove persistent rules. |
 | `storager profile [name]` | List or set the active user profile. |
 | `storager export [path]` | Write a JSON report of a scan. |
+| `storager undo` | Restore the last batch of deleted items from Trash. |
+| `storager auto` | Check disk and clean automatically if above a threshold. |
 | `storager low-space` | Show how to run storager when disk is almost full. |
 | `storager version` | Print version. |
 
@@ -113,6 +115,35 @@ storager clean ~ --dry-run
 ```
 
 You will see `DRY RUN — nothing will be deleted` up front, and every item is marked `DRY RUN — not deleted` instead of being removed.
+
+---
+
+## Undo
+
+Every deletion is recorded. Bring back the last batch in one command:
+
+```bash
+storager undo
+```
+
+storager lists what it's about to restore, asks for confirmation, and moves everything back to its original location. Items are tracked in `~/.config/storager/journal.json`.
+
+---
+
+## Auto
+
+Let storager watch your disk and clean when it gets full:
+
+```bash
+storager auto ~ --threshold 85
+```
+
+If disk usage is **below** the threshold, it says so and exits. If it's **above**, it computes a target and starts the clean flow (which still asks before deleting). Schedule it with cron or launchd:
+
+```bash
+# check every hour
+0 * * * * storager auto ~ --threshold 85 >> ~/storager.log 2>&1
+```
 
 ---
 
@@ -185,7 +216,8 @@ storager/
   graph.py      → connection/relation mapping
   present.py    → plain-language rendering
   confirm.py    → hard "always ask" gate
-  deleter.py    → trash / hard delete
+  deleter.py    → trash / hard delete (tracks destination for undo)
+  journal.py    → records each deletion batch for undo
   report.py     → session summary
   rules.py      → persistent always-delete rules
 ```
