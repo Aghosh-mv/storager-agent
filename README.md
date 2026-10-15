@@ -241,6 +241,16 @@ storager decides by itself whether to use threads:
 
 ---
 
+## Testing
+
+```bash
+python3 -m unittest discover -s tests
+```
+
+Covers size parsing, the classifier, scanner, inspector, profiles, health scoring, and selection parsing.
+
+---
+
 ## Architecture
 
 ```

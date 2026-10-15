@@ -65,7 +65,7 @@ def dir_size(path: Path, max_depth: int = 64, _depth: int = 0) -> tuple:
     return total, count, err
 
 
-def scan_immediate_children(root: Path, top_n: Optional[int] = None, parallel: bool = False) -> list:
+def scan_immediate_children(root: Path, top_n: Optional[int] = None, parallel: bool = False, on_progress=None) -> list:
     dirs: list[Path] = []
     results: list[DiskEntry] = []
 
@@ -84,8 +84,17 @@ def scan_immediate_children(root: Path, top_n: Optional[int] = None, parallel: b
     except (PermissionError, FileNotFoundError, OSError):
         return []
 
+    import threading
+    lock = threading.Lock()
+    done = [0]
+    total_dirs = len(dirs)
+
     def measure(p: Path) -> tuple:
         total, count, err = dir_size(p)
+        if on_progress is not None:
+            with lock:
+                done[0] += 1
+                on_progress(done[0], total_dirs)
         return p, total, count, err
 
     if parallel and len(dirs) >= 8:

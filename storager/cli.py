@@ -67,6 +67,22 @@ def parse_parallel(raw: str) -> str:
         return "auto"
 
 
+def _progress_printer(enabled: bool):
+    if not enabled:
+        return None
+
+    def _print(done: int, total: int) -> None:
+        if total < 10:
+            return
+        pct = min(100, done * 100 // total)
+        bar = "█" * (pct // 5) + "░" * (20 - pct // 5)
+        print(f"\r  {DIM}measuring{RESET} {bar} {pct:>3}%  ({done}/{total})", end="", flush=True)
+        if done >= total:
+            print()
+
+    return _print
+
+
 def prompt_target_bytes():
     print(f"{BOLD}How much disk space do you want to free?{RESET}")
     print(f"  {DIM}Examples: 5G   500M   2T   1024   (or press Enter for no target){RESET}")
@@ -111,7 +127,7 @@ def cmd_scan(args) -> int:
     _banner()
     print(f"{BOLD}Scanning:{RESET} {session.root}\n")
     configure(session.flags.trace)
-    analyze(session, top_n=args.top)
+    analyze(session, top_n=args.top, on_progress=_progress_printer(True))
     render_problems(session.problems)
     total = sum(e.size for e in session.entries)
     print(f"{BOLD}Biggest items{RESET} (total measured: {human_size(total)})")
@@ -155,7 +171,7 @@ def cmd_clean(args) -> int:
     if session.target_bytes is None and not session.flags.no_prompt:
         session.target_bytes = prompt_target_bytes()
 
-    analyze(session, top_n=args.top)
+    analyze(session, top_n=args.top, on_progress=_progress_printer(True))
     render_problems(session.problems)
 
     rules = load_rules()
@@ -371,7 +387,7 @@ def cmd_doctor(args) -> int:
     configure(args.trace)
 
     session = _make_session(args)
-    analyze(session, top_n=args.top)
+    analyze(session, top_n=args.top, on_progress=_progress_printer(True))
 
     try:
         usage = shutil.disk_usage(root)
@@ -496,7 +512,7 @@ def cmd_export(args) -> int:
     _banner()
     print(f"{BOLD}Exporting:{RESET} {session.root}\n")
     configure(session.flags.trace)
-    analyze(session, top_n=args.top)
+    analyze(session, top_n=args.top, on_progress=_progress_printer(True))
 
     data = {
         "root": str(session.root),

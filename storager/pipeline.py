@@ -28,10 +28,11 @@ def _trace(stage: str, elapsed: float, count: int) -> None:
         print(f"  {DIM}▸ {stage} ({elapsed:.2f}s, {count} items){RESET}")
 
 
-def scan_stage(session: Session, top_n: int) -> None:
+def scan_stage(session: Session, top_n: int, on_progress=None) -> None:
     t0 = time.time()
     entries = scan_immediate_children(
-        session.root, top_n=top_n, parallel=session.flags.parallel != "sequential"
+        session.root, top_n=top_n, parallel=session.flags.parallel != "sequential",
+        on_progress=on_progress,
     )
     session.entries = entries
     _trace("scanned", time.time() - t0, len(entries))
@@ -82,8 +83,8 @@ def relate_stage(session: Session) -> None:
     _trace("related", time.time() - t0, len(rel))
 
 
-def analyze(session: Session, top_n: int = 30) -> None:
-    scan_stage(session, top_n)
+def analyze(session: Session, top_n: int = 30, on_progress=None) -> None:
+    scan_stage(session, top_n, on_progress)
     inspect_stage(session)
     classify_stage(session)
     diagnose_stage(session)
