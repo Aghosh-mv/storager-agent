@@ -52,4 +52,43 @@ def diagnose(session: Session) -> list:
         if len(paths) > 1:
             probs.append(Problem("warn", None, f"{len(paths)} files of exactly {human_size(size)} — possible duplicates"))
 
+    for size, group in _find_true_duplicates(session):
+        probs.append(Problem("warn", None, f"{len(group)} identical files ({human_size(size)}) — real duplicates wasting space"))
+
     return probs
+
+
+def _hash_file(path: Path, chunk: int = 1024 * 1024):
+    import hashlib
+    h = hashlib.md5()
+    try:
+        with open(path, "rb") as f:
+            while True:
+                b = f.read(chunk)
+                if not b:
+                    break
+                h.update(b)
+        return h.hexdigest()
+    except OSError:
+        return None
+
+
+def _find_true_duplicates(session: Session, min_size: int = 1024 * 1024, cap: int = 60):
+    groups: dict = {}
+    for ce in session.classified:
+        if not ce.entry.is_dir and ce.entry.size >= min_size:
+            groups.setdefault(ce.entry.size, []).append(ce.entry.path)
+
+    out = []
+    for size, paths in groups.items():
+        if len(paths) < 2 or len(paths) > cap:
+            continue
+        by_hash: dict = {}
+        for p in paths:
+            h = _hash_file(p)
+            if h:
+                by_hash.setdefault(h, []).append(p)
+        for h, ps in by_hash.items():
+            if len(ps) > 1:
+                out.append((size, ps))
+    return out

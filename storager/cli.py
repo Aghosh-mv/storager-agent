@@ -11,7 +11,7 @@ from . import __version__
 from .confirm import confirm_deletion
 from .deleter import delete_entries
 from .interactive import prompt_selection
-from .journal import entries_for_batch, latest_batch, record_batch, remove_batch
+from .journal import entries_for_batch, history, latest_batch, record_batch, remove_batch
 from .pipeline import analyze, configure
 from .present import render_problems, render_table
 from .profiles import PROFILES, active_profile_name, get_profile, set_active_profile
@@ -270,6 +270,23 @@ def cmd_undo(args) -> int:
     if restored:
         remove_batch(batch)
     print(f"\n{GREEN}Restored {restored} item(s).{RESET}" + (f"  {RED}{failed} failed.{RESET}" if failed else ""))
+    return 0
+
+
+def cmd_history(args) -> int:
+    _banner()
+    rows = history()
+    if not rows:
+        print("No cleanups recorded yet. Run `storager clean` first.")
+        return 0
+
+    rows = list(reversed(rows))
+    total = sum(r["size"] for r in rows)
+    print(f"{BOLD}Cleanup history{RESET}  ({len(rows)} batch(es), {human_size(total)} freed total)\n")
+    for r in rows:
+        when = r.get("at") or r["batch"]
+        print(f"  {when}  {r['count']:>3} item(s)  {human_size(r['size']):>10}")
+    print()
     return 0
 
 
@@ -609,6 +626,9 @@ def build_parser() -> argparse.ArgumentParser:
     undo_p = sub.add_parser("undo", help="Restore the last batch of deleted items from Trash")
     undo_p.set_defaults(func=cmd_undo)
 
+    hist_p = sub.add_parser("history", help="Show past cleanups and total space freed")
+    hist_p.set_defaults(func=cmd_history)
+
     auto_p = sub.add_parser("auto", help="Check disk and clean automatically if above threshold")
     auto_p.add_argument("path", nargs="?", default=".", help="Path to check (default: cwd)")
     auto_p.add_argument("--threshold", type=float, default=85, help="Trigger when disk usage is above this %% (default: 85)")
@@ -631,7 +651,7 @@ def main(argv=None) -> int:
     parser = build_parser()
     if argv is None:
         argv = sys.argv[1:]
-    known = {"scan", "clean", "rules", "version", "low-space", "profile", "export", "undo", "auto", "doctor"}
+    known = {"scan", "clean", "rules", "version", "low-space", "profile", "export", "undo", "auto", "doctor", "history"}
     if not argv:
         argv = ["clean"]
     elif argv[0] not in known and not argv[0].startswith("-"):

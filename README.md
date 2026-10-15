@@ -47,7 +47,7 @@ storager clean ~      # same thing, explicit
 | **Scan** | Measures sizes of everything under your target directory. Uses parallel threads on large trees, sequential on small ones (auto-decides). |
 | **Inspect** | Peeks inside each folder: counts files by type, finds oldest/newest, lists biggest files. |
 | **Classify** | Names every item in plain English + assigns a risk level (safe / probably-safe / risky / unknown). |
-| **Diagnose** | Finds problems: disk almost full, stale caches, empty folders, duplicate files, huge single files. |
+| **Diagnose** | Finds problems: disk almost full, stale caches, empty folders, **real duplicate files** (hash-verified), huge single files. |
 | **Relate** | Shows connections: "deleting this node_modules affects project X at /path". |
 | **Present** | Renders a colour-coded table with a one-liner summary of what's inside each item. |
 | **Confirm** | **Hard gate — always asks before deleting. No flag skips this.** |
@@ -66,6 +66,7 @@ storager clean ~      # same thing, explicit
 | `storager profile [name]` | List or set the active user profile. |
 | `storager export [path]` | Write a JSON report of a scan. |
 | `storager undo` | Restore the last batch of deleted items from Trash. |
+| `storager history` | Show past cleanups and total space freed. |
 | `storager auto` | Check disk and clean automatically if above a threshold. |
 | `storager doctor` | Full disk health report: score, problems, top hogs, next step. |
 | `storager low-space` | Show how to run storager when disk is almost full. |
@@ -128,6 +129,12 @@ storager undo
 ```
 
 storager lists what it's about to restore, asks for confirmation, and moves everything back to its original location. Items are tracked in `~/.config/storager/journal.json`.
+
+See all your past cleanups:
+
+```bash
+storager history
+```
 
 ---
 

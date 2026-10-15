@@ -75,6 +75,7 @@ Nothing is permanently deleted by default. Everything goes to your **Trash**. Ju
 | `storager scan ~` | Just look — no deleting |
 | `storager clean ~ --dry-run` | Preview what would be deleted — delete nothing |
 | `storager undo` | Bring back what you just deleted |
+| `storager history` | See your past cleanups and how much you freed |
 | `storager auto ~ --threshold 85` | Clean automatically when disk gets too full |
 | `storager doctor ~` | Full health check — score, problems, top space hogs |
 | `storager profile developer` | Tell storager you're a developer (smarter detection) |

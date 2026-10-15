@@ -37,15 +37,26 @@ def record_batch(results: list, batch: Optional[str] = None) -> None:
     batch = batch or datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     rows = _load()
     for r in results:
-        if r.ok and r.dest is not None:
+        if r.ok:
             rows.append(asdict(JournalEntry(
                 original=str(r.path),
-                dest=str(r.dest),
+                dest=str(r.dest) if r.dest is not None else None,
                 size=r.freed_bytes,
                 at=datetime.now().isoformat(),
                 batch=batch,
             )))
     _save(rows)
+
+
+def history() -> list:
+    rows = _load()
+    batches: dict = {}
+    for r in rows:
+        b = r.get("batch", "unknown")
+        slot = batches.setdefault(b, {"count": 0, "size": 0, "at": r.get("at", "")})
+        slot["count"] += 1
+        slot["size"] += r.get("size", 0)
+    return [{"batch": k, **v} for k, v in batches.items()]
 
 
 def latest_batch() -> Optional[str]:
