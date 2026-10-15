@@ -67,6 +67,7 @@ storager clean ~      # same thing, explicit
 | `storager export [path]` | Write a JSON report of a scan. |
 | `storager undo` | Restore the last batch of deleted items from Trash. |
 | `storager auto` | Check disk and clean automatically if above a threshold. |
+| `storager doctor` | Full disk health report: score, problems, top hogs, next step. |
 | `storager low-space` | Show how to run storager when disk is almost full. |
 | `storager version` | Print version. |
 
@@ -143,6 +144,39 @@ If disk usage is **below** the threshold, it says so and exits. If it's **above*
 ```bash
 # check every hour
 0 * * * * storager auto ~ --threshold 85 >> ~/storager.log 2>&1
+```
+
+---
+
+## Doctor
+
+A one-shot health report — disk usage bar, health score, problems, quick wins, top space hogs, and a recommended next step:
+
+```bash
+storager doctor ~
+```
+
+```
+DISK
+  ██████████████████████████████████████░░  95.5% used
+  218.1 GB used / 228.3 GB total / 10.2 GB free
+
+HEALTH SCORE  58/100  — Needs attention
+
+PROBLEMS (1)
+  ! disk is 96% full — urgent cleanup needed
+
+QUICK WINS
+  4.6 GB of safe-to-delete caches/logs/trash
+  2.1 GB of rebuildable build output
+
+TOP SPACE HOGS
+       3.4 GB  App cache — safe to clear
+              /Users/you/Library/Caches/com.spotify.client
+       ...
+
+RECOMMENDED NEXT STEP
+  → Run storager clean /Users/you to free space interactively.
 ```
 
 ---

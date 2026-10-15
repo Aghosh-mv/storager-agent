@@ -321,6 +321,94 @@ def cmd_auto(args) -> int:
     return cmd_clean(a)
 
 
+def _disk_bar(pct: float, width: int = 40) -> str:
+    filled = int(width * min(pct, 100) / 100)
+    color = GREEN if pct < 70 else YELLOW if pct < 85 else RED
+    return f"{color}{'█' * filled}{'░' * (width - filled)}{RESET}"
+
+
+def _health_score(pct: float, problems: list) -> int:
+    score = 100
+    if pct > 90:
+        score -= 30
+    elif pct > 80:
+        score -= 18
+    elif pct > 70:
+        score -= 8
+    for p in problems:
+        if p.severity == "critical":
+            score -= 12
+        elif p.severity == "warn":
+            score -= 5
+    return max(0, score)
+
+
+def cmd_doctor(args) -> int:
+    import shutil
+    root = Path(args.path).expanduser().resolve()
+    if not root.exists():
+        print(f"{RED}Path does not exist: {root}{RESET}", file=sys.stderr)
+        return 1
+    _banner()
+    print(f"{BOLD}Running full disk health check on:{RESET} {root}\n")
+    configure(args.trace)
+
+    session = _make_session(args)
+    analyze(session, top_n=args.top)
+
+    try:
+        usage = shutil.disk_usage(root)
+        pct = usage.used / usage.total * 100
+    except OSError as e:
+        print(f"{RED}Could not check disk usage: {e}{RESET}", file=sys.stderr)
+        return 1
+
+    score = _health_score(pct, session.problems)
+    score_color = GREEN if score >= 80 else YELLOW if score >= 50 else RED
+    verdict = "Healthy" if score >= 80 else "Needs attention" if score >= 50 else "Critical"
+
+    print(f"{BOLD}DISK{RESET}")
+    print(f"  {_disk_bar(pct)}  {pct:.1f}% used")
+    print(f"  {human_size(usage.used)} used / {human_size(usage.total)} total / {human_size(usage.free)} free\n")
+
+    print(f"{BOLD}HEALTH SCORE{RESET}  {score_color}{score}/100{RESET}  — {score_color}{verdict}{RESET}\n")
+
+    print(f"{BOLD}PROBLEMS ({len(session.problems)}){RESET}")
+    if session.problems:
+        for p in session.problems:
+            color = RED if p.severity == "critical" else YELLOW if p.severity == "warn" else DIM
+            loc = f"  ({p.path})" if p.path else ""
+            print(f"  {color}!{RESET} {p.message}{DIM}{loc}{RESET}")
+    else:
+        print(f"  {GREEN}none — looks clean{RESET}")
+    print()
+
+    safe_total = sum(ce.entry.size for ce in session.classified if ce.risk == "safe")
+    build_total = sum(ce.entry.size for ce in session.classified if ce.risk == "probably-safe")
+    print(f"{BOLD}QUICK WINS{RESET}")
+    print(f"  {GREEN}{human_size(safe_total)}{RESET} of safe-to-delete caches/logs/trash")
+    print(f"  {YELLOW}{human_size(build_total)}{RESET} of rebuildable build output")
+    print()
+
+    print(f"{BOLD}TOP SPACE HOGS{RESET}")
+    for i, ce in enumerate(session.classified[:5], 1):
+        color = "\033[92m" if ce.risk == "safe" else "\033[93m" if ce.risk == "probably-safe" else "\033[91m"
+        print(f"  {color}{ce.entry.size_str:>10}{RESET}  {ce.label}")
+        print(f"            {DIM}{ce.entry.path}{RESET}")
+    print()
+
+    print(f"{BOLD}RECOMMENDED NEXT STEP{RESET}")
+    if pct >= 85:
+        print(f"  {YELLOW}→{RESET} Run {BOLD}storager clean {root}{RESET} to free space interactively.")
+        print(f"  {YELLOW}→{RESET} Or {BOLD}storager clean {root} --dry-run{RESET} to preview first.")
+    elif session.problems:
+        print(f"  {YELLOW}→{RESET} Run {BOLD}storager clean {root}{RESET} to clear the items above.")
+    else:
+        print(f"  {GREEN}→{RESET} Nothing urgent. Run {BOLD}storager auto {root} --threshold 85{RESET} to stay on top of it.")
+    print()
+    return 0
+
+
 def cmd_rules(args) -> int:
     rules = load_rules()
     if args.add_category and args.add_glob:
@@ -529,6 +617,13 @@ def build_parser() -> argparse.ArgumentParser:
     auto_p.add_argument("--trace", action="store_true", help="Print stage timing")
     auto_p.set_defaults(func=cmd_auto)
 
+    doctor_p = sub.add_parser("doctor", help="Full disk health report: score, problems, top hogs, next step")
+    doctor_p.add_argument("path", nargs="?", default=".", help="Path to check (default: cwd)")
+    doctor_p.add_argument("--top", type=int, default=50, help="Max items to consider")
+    doctor_p.add_argument("--trace", action="store_true", help="Print stage timing")
+    doctor_p.add_argument("--parallel", default="auto", help="auto | sequential | 1-32")
+    doctor_p.set_defaults(func=cmd_doctor)
+
     return p
 
 
@@ -536,7 +631,7 @@ def main(argv=None) -> int:
     parser = build_parser()
     if argv is None:
         argv = sys.argv[1:]
-    known = {"scan", "clean", "rules", "version", "low-space", "profile", "export", "undo", "auto"}
+    known = {"scan", "clean", "rules", "version", "low-space", "profile", "export", "undo", "auto", "doctor"}
     if not argv:
         argv = ["clean"]
     elif argv[0] not in known and not argv[0].startswith("-"):
