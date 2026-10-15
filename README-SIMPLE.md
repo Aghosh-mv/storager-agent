@@ -73,6 +73,9 @@ Nothing is permanently deleted by default. Everything goes to your **Trash**. Ju
 | `storager` | Clean your current folder |
 | `storager ~` | Clean your home folder (everything) |
 | `storager scan ~` | Just look — no deleting |
+| `storager clean ~ --dry-run` | Preview what would be deleted — delete nothing |
+| `storager profile developer` | Tell storager you're a developer (smarter detection) |
+| `storager export ~ --out report.json` | Save a report of what was found |
 | `storager rules` | See your saved rules |
 
 ---

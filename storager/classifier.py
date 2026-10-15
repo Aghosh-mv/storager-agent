@@ -79,8 +79,9 @@ _RULES = [
 ]
 
 
-def classify(entry: DiskEntry) -> ClassifiedEntry:
-    for category, risk, label, pred in _RULES:
+def classify(entry: DiskEntry, profile=None) -> ClassifiedEntry:
+    rules = _extra_rules(profile) + _RULES
+    for category, risk, label, pred in rules:
         try:
             if pred(entry):
                 return ClassifiedEntry(
@@ -93,6 +94,15 @@ def classify(entry: DiskEntry) -> ClassifiedEntry:
         entry=entry, label="Unclassified item", category="unknown",
         risk="unknown", reason="storager could not identify what this is.",
     )
+
+
+def _extra_rules(profile) -> list:
+    if profile is None:
+        return []
+    out = []
+    for category, risk, label, pred in profile.extra_rules:
+        out.append((category, risk, label, pred))
+    return out
 
 
 def _reason(category: str, entry: DiskEntry) -> str:

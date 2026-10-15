@@ -59,7 +59,7 @@ def classify_stage(session: Session) -> None:
     t0 = time.time()
     out: list = []
     for e in session.entries:
-        ce = classify(e)
+        ce = classify(e, session.profile)
         ce.summary = summarize_report(session.reports.get(str(e.path)))
         ce.facts = collect_facts(e.path)
         out.append(ce)

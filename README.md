@@ -63,6 +63,9 @@ storager clean ~      # same thing, explicit
 | `storager scan [path]` | Scan and explain — no deletion. |
 | `storager clean [path]` | Interactive clean with target prompt. |
 | `storager rules` | List / add / remove persistent rules. |
+| `storager profile [name]` | List or set the active user profile. |
+| `storager export [path]` | Write a JSON report of a scan. |
+| `storager low-space` | Show how to run storager when disk is almost full. |
 | `storager version` | Print version. |
 
 ### Flags
@@ -72,10 +75,56 @@ storager clean ~      # same thing, explicit
 | `--top N` | Max items to consider (default: 30 scan / 50 clean) |
 | `--target 5G` | Skip the target prompt, aim for 5 GB |
 | `--no-prompt` | No target, just clean |
+| `--dry-run` | Preview what would be deleted — delete nothing |
 | `--hard` | Permanently delete (skip Trash) |
+| `--profile NAME` | Override the active profile for this run |
 | `--trace` | Print stage timing as it runs |
 | `--parallel auto\|sequential\|N` | Force parallel mode (default: auto-decides) |
 | `--all` | Show risky items in scan output |
+
+---
+
+## Profiles
+
+A **profile** teaches storager what *you* do, so it recognises the right things.
+
+| Profile | Knows about |
+|---|---|
+| `developer` | node_modules, Python venvs, Rust `target`, Docker, Xcode DerivedData, CocoaPods, Terraform |
+| `designer` | Adobe, Figma, Sketch, fonts, render/export caches |
+| `casual` | Caches, downloads, trash, logs |
+| `minimal` | Only caches and trash — most conservative |
+
+```bash
+storager profile          # list profiles + show active one
+storager profile developer
+```
+
+The active profile is stored in `~/.config/storager/profile` and applied automatically to every run. Override for a single run with `--profile designer`.
+
+---
+
+## Dry run
+
+Preview the whole flow — target prompt, scanning, explanations, confirmation — without deleting anything:
+
+```bash
+storager clean ~ --dry-run
+```
+
+You will see `DRY RUN — nothing will be deleted` up front, and every item is marked `DRY RUN — not deleted` instead of being removed.
+
+---
+
+## Export
+
+Write a machine-readable report of a scan:
+
+```bash
+storager export ~ --out report.json
+```
+
+The JSON contains every item with its size, category, risk, plain-language label, the "inside" summary, facts, and relations — plus the problems storager found.
 
 ---
 
@@ -130,7 +179,8 @@ storager/
   scanner.py    → parallel/sequential size measurement
   inspector.py  → peek inside: count by type, age, biggest files
   facts.py      → fact registry (internal + external packs)
-  classifier.py → name + risk (ordered rules)
+  classifier.py → name + risk (ordered rules, profile-aware)
+  profiles.py   → developer / designer / casual / minimal presets
   diagnose.py   → problem detection
   graph.py      → connection/relation mapping
   present.py    → plain-language rendering

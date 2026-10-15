@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from .deleter import delete_entries
 from .interactive import prompt_selection
 from .pipeline import analyze, configure
 from .present import render_problems, render_table
+from .profiles import PROFILES, active_profile_name, get_profile, set_active_profile
 from .report import print_results, print_summary
 from .rules import add_rule, load_rules, match_rule, remove_rule
 from .scanner import human_size
@@ -86,6 +88,7 @@ def _banner() -> None:
 def _make_session(args) -> Session:
     root = Path(args.path).expanduser().resolve()
     target = parse_size(args.target) if getattr(args, "target", None) else None
+    profile_name = getattr(args, "profile", "") or active_profile_name()
     flags = Flags(
         trace=getattr(args, "trace", False),
         parallel=parse_parallel(getattr(args, "parallel", "auto")),
@@ -93,8 +96,10 @@ def _make_session(args) -> Session:
         hard=getattr(args, "hard", False),
         no_prompt=getattr(args, "no_prompt", False),
         all=getattr(args, "all", False),
+        dry_run=getattr(args, "dry_run", False),
+        profile=profile_name,
     )
-    return Session(root=root, target_bytes=target, flags=flags)
+    return Session(root=root, target_bytes=target, flags=flags, profile=get_profile(profile_name))
 
 
 def cmd_scan(args) -> int:
@@ -114,6 +119,23 @@ def cmd_scan(args) -> int:
     return 0
 
 
+def _apply_deletions(session, selected, deleted_paths) -> list:
+    paths = [ce.entry.path for ce in selected]
+    if session.flags.dry_run:
+        results = [
+            type("R", (), {"path": p, "ok": True, "message": "DRY RUN — not deleted", "freed_bytes": ce.entry.size})()
+            for p, ce in zip(paths, selected)
+        ]
+        for r in results:
+            deleted_paths.add(r.path)
+        return results
+    results = delete_entries(paths, use_trash=not session.flags.hard)
+    for r in results:
+        if r.ok:
+            deleted_paths.add(r.path)
+    return results
+
+
 def cmd_clean(args) -> int:
     session = _make_session(args)
     if not session.root.exists():
@@ -122,6 +144,12 @@ def cmd_clean(args) -> int:
     _banner()
     print(f"{BOLD}Cleaning session for:{RESET} {session.root}\n")
     configure(session.flags.trace)
+
+    if session.flags.dry_run:
+        print(f"{YELLOW}DRY RUN — nothing will be deleted. This is a preview only.{RESET}\n")
+
+    if session.profile:
+        print(f"{DIM}Profile: {session.profile.name} — {session.profile.description}{RESET}\n")
 
     if session.target_bytes is None and not session.flags.no_prompt:
         session.target_bytes = prompt_target_bytes()
@@ -139,11 +167,9 @@ def cmd_clean(args) -> int:
         print(f"{YELLOW}Saved 'always delete' rules matched {len(auto)} item(s):{RESET}")
         render_table(auto, session.reports, session.relations, show_all=True)
         if confirm_deletion(auto, hard=session.flags.hard):
-            results = delete_entries([ce.entry.path for ce in auto], use_trash=not session.flags.hard)
+            results = _apply_deletions(session, auto, deleted_paths)
             print_results(results)
             session.freed += sum(r.freed_bytes for r in results if r.ok)
-            for r in results:
-                deleted_paths.add(r.path)
         print()
 
     remaining = [ce for ce in session.classified if ce.entry.path not in deleted_paths]
@@ -164,13 +190,11 @@ def cmd_clean(args) -> int:
             print(f"{YELLOW}Cancelled — nothing deleted. Pick different items or type 'none'.{RESET}\n")
             continue
 
-        results = delete_entries([ce.entry.path for ce in selected], use_trash=not session.flags.hard)
+        results = _apply_deletions(session, selected, deleted_paths)
         print_results(results)
         session.freed += sum(r.freed_bytes for r in results if r.ok)
-        for r in results:
-            deleted_paths.add(r.path)
 
-        if mode == "always":
+        if mode == "always" and not session.flags.dry_run:
             print(f"\n{BOLD}Saving 'always delete' rules…{RESET}")
             for ce in selected:
                 add_rule(ce.category, str(ce.entry.path), "delete")
@@ -187,6 +211,8 @@ def cmd_clean(args) -> int:
             break
 
     print_summary(session)
+    if session.flags.dry_run:
+        print(f"{YELLOW}Dry run complete — nothing was deleted.{RESET}")
     return 0
 
 
@@ -226,6 +252,77 @@ def cmd_low_space(args) -> int:
 
 def cmd_version(_) -> int:
     print(f"storager {__version__}")
+    return 0
+
+
+def cmd_profile(args) -> int:
+    _banner()
+    if args.name:
+        if args.name not in PROFILES:
+            print(f"{RED}Unknown profile '{args.name}'.{RESET}", file=sys.stderr)
+            print(f"Available: {', '.join(PROFILES)}", file=sys.stderr)
+            return 1
+        set_active_profile(args.name)
+        p = PROFILES[args.name]
+        print(f"{GREEN}Profile set to '{args.name}'.{RESET}")
+        print(f"{DIM}{p.description}{RESET}")
+        return 0
+
+    active = active_profile_name()
+    print(f"{BOLD}Profiles{RESET}  {DIM}(active: {active or 'none'}){RESET}\n")
+    for name, p in PROFILES.items():
+        marker = f"{GREEN}● active{RESET}" if name == active else "  "
+        print(f"  {name:10} {marker}")
+        print(f"  {'':10} {DIM}{p.description}{RESET}\n")
+    print(f"{DIM}Set one with: storager profile developer{RESET}")
+    return 0
+
+
+def cmd_export(args) -> int:
+    session = _make_session(args)
+    if not session.root.exists():
+        print(f"{RED}Path does not exist: {session.root}{RESET}", file=sys.stderr)
+        return 1
+    _banner()
+    print(f"{BOLD}Exporting:{RESET} {session.root}\n")
+    configure(session.flags.trace)
+    analyze(session, top_n=args.top)
+
+    data = {
+        "root": str(session.root),
+        "profile": session.flags.profile or None,
+        "target_bytes": session.target_bytes,
+        "total_measured": sum(e.size for e in session.entries),
+        "problems": [
+            {
+                "severity": p.severity,
+                "path": str(p.path) if p.path else None,
+                "message": p.message,
+            }
+            for p in session.problems
+        ],
+        "items": [
+            {
+                "path": str(ce.entry.path),
+                "size_bytes": ce.entry.size,
+                "size": ce.entry.size_str,
+                "is_dir": ce.entry.is_dir,
+                "category": ce.category,
+                "risk": ce.risk,
+                "label": ce.label,
+                "summary": ce.summary,
+                "facts": ce.facts,
+                "relations": ce.relations,
+            }
+            for ce in session.classified
+        ],
+    }
+
+    out = Path(args.out).expanduser()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(data, indent=2))
+    print(f"{GREEN}Wrote {out}{RESET}  ({len(session.classified)} items, "
+          f"{len(session.problems)} problems).")
     return 0
 
 
@@ -284,6 +381,8 @@ def build_parser() -> argparse.ArgumentParser:
     clean_p.add_argument("--target", help="Target free space, e.g. 5G / 500M / 2T (skip the prompt)")
     clean_p.add_argument("--no-prompt", action="store_true", help="Skip the target question entirely")
     clean_p.add_argument("--hard", action="store_true", help="Permanently delete (skip Trash)")
+    clean_p.add_argument("--dry-run", action="store_true", help="Preview what would be deleted, delete nothing")
+    clean_p.add_argument("--profile", help="Override the active profile for this run")
     clean_p.add_argument("--trace", action="store_true", help="Print stage timing")
     clean_p.add_argument("--parallel", default="auto", help="auto | sequential | 1-32")
     clean_p.set_defaults(func=cmd_clean)
@@ -294,6 +393,18 @@ def build_parser() -> argparse.ArgumentParser:
     rules_p.add_argument("--add-action", choices=["delete", "ignore"], default="delete")
     rules_p.add_argument("--remove", type=int, help="Index of rule to remove")
     rules_p.set_defaults(func=cmd_rules)
+
+    profile_p = sub.add_parser("profile", help="List or set the active user profile")
+    profile_p.add_argument("name", nargs="?", help="Profile to activate (developer / designer / casual / minimal)")
+    profile_p.set_defaults(func=cmd_profile)
+
+    export_p = sub.add_parser("export", help="Write a JSON report of a scan")
+    export_p.add_argument("path", nargs="?", default=".", help="Directory to export (default: cwd)")
+    export_p.add_argument("--out", default="storager-report.json", help="Output file")
+    export_p.add_argument("--top", type=int, default=100, help="Max items to include")
+    export_p.add_argument("--trace", action="store_true", help="Print stage timing")
+    export_p.add_argument("--parallel", default="auto", help="auto | sequential | 1-32")
+    export_p.set_defaults(func=cmd_export)
 
     ver_p = sub.add_parser("version", help="Print version")
     ver_p.set_defaults(func=cmd_version)
@@ -309,7 +420,7 @@ def main(argv=None) -> int:
     parser = build_parser()
     if argv is None:
         argv = sys.argv[1:]
-    known = {"scan", "clean", "rules", "version", "low-space"}
+    known = {"scan", "clean", "rules", "version", "low-space", "profile", "export"}
     if not argv:
         argv = ["clean"]
     elif argv[0] not in known and not argv[0].startswith("-"):

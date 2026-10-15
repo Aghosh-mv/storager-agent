@@ -13,6 +13,8 @@ class Flags:
     hard: bool = False
     no_prompt: bool = False
     all: bool = False
+    dry_run: bool = False
+    profile: str = ""
 
 
 @dataclass
@@ -20,6 +22,7 @@ class Session:
     root: Path
     target_bytes: Optional[int] = None
     flags: Flags = field(default_factory=Flags)
+    profile: object = None
     entries: list = field(default_factory=list)
     reports: dict = field(default_factory=dict)
     classified: list = field(default_factory=list)
